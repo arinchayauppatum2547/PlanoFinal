@@ -2,9 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { getTasks, updateTaskProgress, deleteTask, Task } from '../services/taskService';
+import { getUserTasks, setUserTasks, getUserCompletedCount, setUserCompletedCount, addCompletedTask } from '../utils/userStorage';
 import { format } from 'date-fns';
 import imgImage4 from '../imports/TaskPage-1/1e9b89899dee90e5a681bd87e2642344fbd3ee93.png';
 import logoPlano from '../imports/plano_dark.png';
+import Button from '../app/components/Button';
+import NavigationButton from '../app/components/NavigationButton';
+import SidebarActionButton from '../app/components/SidebarActionButton';
 
 interface ChecklistItem {
   id: string;
@@ -18,6 +22,13 @@ interface PortfolioFile {
   type: string;
   url: string;
   uploadedAt: string;
+}
+
+interface WorkSession {
+  id: string;
+  startTime: string;
+  endTime: string;
+  duration: number; // in minutes
 }
 
 export default function TaskDetailPage() {
@@ -34,23 +45,26 @@ export default function TaskDetailPage() {
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
   const [newChecklistItem, setNewChecklistItem] = useState('');
   const [portfolioFiles, setPortfolioFiles] = useState<PortfolioFile[]>([]);
-  const { accessToken, signOut } = useAuth();
+  const [workSessions, setWorkSessions] = useState<WorkSession[]>([]);
+  const [newSessionStart, setNewSessionStart] = useState('');
+  const [newSessionEnd, setNewSessionEnd] = useState('');
+  const { accessToken, user, signOut } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (accessToken && taskId) {
+    if (accessToken && taskId && user) {
       loadTask();
     }
-  }, [accessToken, taskId]);
+  }, [accessToken, taskId, user]);
 
   const loadTask = async () => {
-    if (!accessToken || !taskId) return;
+    if (!accessToken || !taskId || !user) return;
 
     setLoading(true);
     try {
       let tasks;
       if (accessToken === 'mock-token') {
-        tasks = JSON.parse(localStorage.getItem('mock_tasks') || '[]');
+        tasks = getUserTasks(user.id);
       } else {
         tasks = await getTasks(accessToken);
       }
@@ -66,6 +80,7 @@ export default function TaskDetailPage() {
         setProgress(foundTask.progress);
         setChecklist(foundTask.checklist || []);
         setPortfolioFiles(foundTask.portfolioFiles || []);
+        setWorkSessions(foundTask.workSessions || []);
       } else {
         navigate('/home');
       }
@@ -78,12 +93,12 @@ export default function TaskDetailPage() {
   };
 
   const handleUpdateTask = async () => {
-    if (!accessToken || !taskId || !task) return;
+    if (!accessToken || !taskId || !task || !user) return;
 
     setUpdating(true);
     try {
       if (accessToken === 'mock-token') {
-        const tasks = JSON.parse(localStorage.getItem('mock_tasks') || '[]');
+        const tasks = getUserTasks(user.id);
         const updatedTasks = tasks.map((t: any) =>
           t.id === taskId
             ? {
@@ -96,12 +111,13 @@ export default function TaskDetailPage() {
                 progress,
                 checklist,
                 portfolioFiles,
+                workSessions,
                 completed: progress === 100,
                 updatedAt: new Date().toISOString()
               }
             : t
         );
-        localStorage.setItem('mock_tasks', JSON.stringify(updatedTasks));
+        setUserTasks(user.id, updatedTasks);
 
         const updatedTask = updatedTasks.find((t: any) => t.id === taskId);
         setTask(updatedTask);
@@ -129,8 +145,8 @@ export default function TaskDetailPage() {
     const newProgress = calculateProgressFromChecklist(newChecklist);
     setProgress(newProgress);
 
-    if (accessToken && taskId) {
-      const tasks = JSON.parse(localStorage.getItem('mock_tasks') || '[]');
+    if (accessToken && taskId && user) {
+      const tasks = getUserTasks(user.id);
       const updatedTasks = tasks.map((t: any) =>
         t.id === taskId
           ? {
@@ -142,7 +158,7 @@ export default function TaskDetailPage() {
             }
           : t
       );
-      localStorage.setItem('mock_tasks', JSON.stringify(updatedTasks));
+      setUserTasks(user.id, updatedTasks);
       const updatedTask = updatedTasks.find((t: any) => t.id === taskId);
       setTask(updatedTask);
 
@@ -212,8 +228,8 @@ export default function TaskDetailPage() {
   };
 
   const updateTaskWithPortfolioFiles = (files: PortfolioFile[]) => {
-    if (accessToken && taskId) {
-      const tasks = JSON.parse(localStorage.getItem('mock_tasks') || '[]');
+    if (accessToken && taskId && user) {
+      const tasks = getUserTasks(user.id);
       const updatedTasks = tasks.map((t: any) =>
         t.id === taskId
           ? {
@@ -223,13 +239,80 @@ export default function TaskDetailPage() {
             }
           : t
       );
-      localStorage.setItem('mock_tasks', JSON.stringify(updatedTasks));
+      setUserTasks(user.id, updatedTasks);
       const updatedTask = updatedTasks.find((t: any) => t.id === taskId);
       setTask(updatedTask);
 
       // Notify other pages to refresh
       window.dispatchEvent(new Event('tasks-updated'));
     }
+  };
+
+  const handleAddWorkSession = () => {
+    if (!newSessionStart || !newSessionEnd) return;
+
+    const start = new Date(newSessionStart);
+    const end = new Date(newSessionEnd);
+
+    if (end <= start) {
+      alert('End time must be after start time');
+      return;
+    }
+
+    const duration = Math.round((end.getTime() - start.getTime()) / (1000 * 60)); // in minutes
+
+    const newSession: WorkSession = {
+      id: Date.now().toString(),
+      startTime: newSessionStart,
+      endTime: newSessionEnd,
+      duration
+    };
+
+    const updatedSessions = [...workSessions, newSession];
+    setWorkSessions(updatedSessions);
+    setNewSessionStart('');
+    setNewSessionEnd('');
+    updateTaskWithWorkSessions(updatedSessions);
+  };
+
+  const handleDeleteWorkSession = (sessionId: string) => {
+    const updatedSessions = workSessions.filter(session => session.id !== sessionId);
+    setWorkSessions(updatedSessions);
+    updateTaskWithWorkSessions(updatedSessions);
+  };
+
+  const updateTaskWithWorkSessions = (sessions: WorkSession[]) => {
+    if (accessToken && taskId && user) {
+      const tasks = getUserTasks(user.id);
+      const updatedTasks = tasks.map((t: any) =>
+        t.id === taskId
+          ? {
+              ...t,
+              workSessions: sessions,
+              updatedAt: new Date().toISOString()
+            }
+          : t
+      );
+      setUserTasks(user.id, updatedTasks);
+      const updatedTask = updatedTasks.find((t: any) => t.id === taskId);
+      setTask(updatedTask);
+
+      // Notify other pages to refresh
+      window.dispatchEvent(new Event('tasks-updated'));
+    }
+  };
+
+  const getTotalWorkTime = () => {
+    return workSessions.reduce((total, session) => total + session.duration, 0);
+  };
+
+  const formatDuration = (minutes: number) => {
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    if (hours > 0) {
+      return `${hours}h ${mins}m`;
+    }
+    return `${mins}m`;
   };
 
   const handleProgressBarClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -240,14 +323,14 @@ export default function TaskDetailPage() {
     setProgress(Math.min(100, Math.max(0, newProgress)));
 
     // Auto-update progress
-    if (accessToken && taskId) {
-      const tasks = JSON.parse(localStorage.getItem('mock_tasks') || '[]');
+    if (accessToken && taskId && user) {
+      const tasks = getUserTasks(user.id);
       const updatedTasks = tasks.map((t: any) =>
         t.id === taskId
           ? { ...t, progress: newProgress, completed: newProgress === 100, updatedAt: new Date().toISOString() }
           : t
       );
-      localStorage.setItem('mock_tasks', JSON.stringify(updatedTasks));
+      setUserTasks(user.id, updatedTasks);
       const updatedTask = updatedTasks.find((t: any) => t.id === taskId);
       setTask(updatedTask);
 
@@ -257,14 +340,14 @@ export default function TaskDetailPage() {
   };
 
   const handleDeleteTask = async () => {
-    if (!accessToken || !taskId) return;
+    if (!accessToken || !taskId || !user) return;
     if (!confirm('Are you sure you want to delete this task?')) return;
 
     try {
       if (accessToken === 'mock-token') {
-        const tasks = JSON.parse(localStorage.getItem('mock_tasks') || '[]');
+        const tasks = getUserTasks(user.id);
         const updatedTasks = tasks.filter((t: any) => t.id !== taskId);
-        localStorage.setItem('mock_tasks', JSON.stringify(updatedTasks));
+        setUserTasks(user.id, updatedTasks);
 
         // Notify other pages to refresh
         window.dispatchEvent(new Event('tasks-updated'));
@@ -278,19 +361,27 @@ export default function TaskDetailPage() {
   };
 
   const handleMarkAsDone = async () => {
-    if (!accessToken || !taskId) return;
+    if (!accessToken || !taskId || !user || !task) return;
 
     try {
       if (accessToken === 'mock-token') {
-        const tasks = JSON.parse(localStorage.getItem('mock_tasks') || '[]');
+        const tasks = getUserTasks(user.id);
+
+        // Find the task to be completed
+        const taskToComplete = tasks.find((t: any) => t.id === taskId);
 
         // Remove task from task list
         const updatedTasks = tasks.filter((t: any) => t.id !== taskId);
-        localStorage.setItem('mock_tasks', JSON.stringify(updatedTasks));
+        setUserTasks(user.id, updatedTasks);
+
+        // Add to completed tasks with completion date
+        if (taskToComplete) {
+          addCompletedTask(user.id, taskToComplete);
+        }
 
         // Increment completed tasks count
-        const completedCount = parseInt(localStorage.getItem('completed_tasks_count') || '0');
-        localStorage.setItem('completed_tasks_count', (completedCount + 1).toString());
+        const completedCount = getUserCompletedCount(user.id);
+        setUserCompletedCount(user.id, completedCount + 1);
 
         // Notify other pages to refresh
         window.dispatchEvent(new Event('tasks-updated'));
@@ -339,103 +430,86 @@ export default function TaskDetailPage() {
 
       {/* Sidebar Navigation */}
       <div className="absolute left-[29.02px] top-[138.47px] flex flex-col gap-[13px] z-10">
-        <button
-          onClick={() => navigate('/home')}
-          className="bg-[rgba(255,255,255,0)] flex gap-[20px] h-[49.75px] items-center px-[24px] rounded-[16.583px] w-[240px] hover:bg-[rgba(0,0,0,0.15)] transition-colors cursor-pointer"
-        >
-          <div className="relative shrink-0 size-[30px]">
+        <NavigationButton
+          icon={
             <svg className="block size-full" fill="white" viewBox="0 0 24 24">
               <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/>
             </svg>
-          </div>
-          <p className="capitalize font-['Instrument_Sans:Medium',sans-serif] font-medium text-[18px] text-[#d9d9d9]" style={{ fontVariationSettings: "'wdth' 100" }}>
-            Home
-          </p>
-        </button>
+          }
+          label="Home"
+          onClick={() => navigate('/home')}
+        />
 
-        <button
-          onClick={() => navigate('/tasks')}
-          className="bg-[rgba(0,0,0,0.25)] flex gap-[20px] h-[49.75px] items-center px-[24px] rounded-[16.583px] shadow-[4.146px_4.146px_4.146px_0px_rgba(0,0,0,0.15)] w-[240px] cursor-pointer hover:opacity-90 transition-opacity"
-        >
-          <div className="relative shrink-0 size-[26px]">
+        <NavigationButton
+          icon={
             <svg className="block size-full" fill="white" viewBox="0 0 24 24">
               <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
             </svg>
-          </div>
-          <p className="capitalize font-['Instrument_Sans:Medium',sans-serif] font-medium text-[18px] text-[#d9d9d9]" style={{ fontVariationSettings: "'wdth' 100" }}>
-            Task
-          </p>
-        </button>
+          }
+          label="Task"
+          active={true}
+          onClick={() => navigate('/tasks')}
+        />
 
-        <button
-          onClick={() => navigate('/calendar')}
-          className="bg-[rgba(255,255,255,0)] flex gap-[20px] h-[48.921px] items-center px-[24px] rounded-[16.583px] w-[240px] hover:bg-[rgba(0,0,0,0.15)] transition-colors cursor-pointer"
-        >
-          <div className="relative shrink-0 size-[26px]">
+        <NavigationButton
+          icon={
             <svg className="block size-full" fill="white" viewBox="0 0 24 24">
               <path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11z"/>
             </svg>
-          </div>
-          <p className="capitalize font-['Instrument_Sans:Medium',sans-serif] font-medium text-[18px] text-[#d9d9d9]" style={{ fontVariationSettings: "'wdth' 100" }}>
-            Calendar
-          </p>
-        </button>
+          }
+          label="Calendar"
+          onClick={() => navigate('/calendar')}
+        />
 
-        <button
-          onClick={() => navigate('/portfolio')}
-          className="bg-[rgba(255,255,255,0)] flex gap-[20px] h-[48.921px] items-center px-[24px] rounded-[16.583px] w-[240px] hover:bg-[rgba(0,0,0,0.15)] transition-colors cursor-pointer"
-        >
-          <div className="relative shrink-0 size-[26px]">
+        <NavigationButton
+          icon={
             <svg className="block size-full" fill="white" viewBox="0 0 24 24">
               <path d="M20 6h-2.18c.11-.31.18-.65.18-1 0-1.66-1.34-3-3-3-1.05 0-1.96.54-2.5 1.35l-.5.67-.5-.68C10.96 2.54 10.05 2 9 2 7.34 2 6 3.34 6 5c0 .35.07.69.18 1H4c-1.11 0-1.99.89-1.99 2L2 19c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2zm-5-2c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zM9 4c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm11 15H4v-2h16v2zm0-5H4V8h5.08L7 10.83 8.62 12 12 7.4l3.38 4.6L17 10.83 14.92 8H20v6z"/>
             </svg>
-          </div>
-          <p className="capitalize font-['Instrument_Sans:Medium',sans-serif] font-medium text-[18px] text-[#d9d9d9]" style={{ fontVariationSettings: "'wdth' 100" }}>
-            Portfolio
-          </p>
-        </button>
+          }
+          label="Portfolio"
+          onClick={() => navigate('/portfolio')}
+        />
       </div>
 
       {/* Sidebar Add Task Button and Options */}
       <div className="absolute left-[29.02px] bottom-[50px] z-10 flex flex-col gap-[12px] w-[240px]">
-        <button
+        <Button
+          variant="primary"
+          fullWidth
           onClick={() => navigate('/tasks/new')}
-          className="bg-[#b0e04f] flex gap-[6px] items-center justify-center py-[10px] rounded-[10px] w-full hover:bg-[#9dca3f] transition-colors cursor-pointer"
+          icon={
+            <svg className="size-[16px]" fill="black" viewBox="0 0 24 24">
+              <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+            </svg>
+          }
+          className="py-[10px] rounded-[10px]"
         >
-          <svg className="size-[16px]" fill="black" viewBox="0 0 24 24">
-            <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
-          </svg>
-          <p className="font-['Manrope:SemiBold',sans-serif] font-semibold text-[15px] text-black">
-            Add New Task
-          </p>
-        </button>
+          Add New Task
+        </Button>
 
-        {/* Help Center */}
-        <button className="flex items-center gap-[10px] px-[12px] py-[8px] hover:bg-[rgba(255,255,255,0.1)] rounded-[8px] transition-colors cursor-pointer">
-          <svg className="size-[18px]" fill="none" stroke="rgba(255,255,255,0.7)" strokeWidth="2" viewBox="0 0 24 24">
-            <circle cx="12" cy="12" r="10"/>
-            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
-            <line x1="12" y1="17" x2="12.01" y2="17"/>
-          </svg>
-          <p className="font-['Inter:Medium',sans-serif] font-medium text-[13px] text-[rgba(255,255,255,0.7)]">
-            Help Center
-          </p>
-        </button>
+        <SidebarActionButton
+          icon={
+            <svg className="size-full" fill="none" stroke="rgba(255,255,255,0.7)" strokeWidth="2" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+              <line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+          }
+          label="Help Center"
+        />
 
-        {/* Sign Out */}
-        <button
+        <SidebarActionButton
+          icon={
+            <svg className="size-full" fill="none" stroke="rgba(255,255,255,0.7)" strokeWidth="2" viewBox="0 0 24 24">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+              <polyline points="16 17 21 12 16 7"/>
+              <line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+          }
+          label="Sign Out"
           onClick={signOut}
-          className="flex items-center gap-[10px] px-[12px] py-[8px] hover:bg-[rgba(255,255,255,0.1)] rounded-[8px] transition-colors cursor-pointer"
-        >
-          <svg className="size-[18px]" fill="none" stroke="rgba(255,255,255,0.7)" strokeWidth="2" viewBox="0 0 24 24">
-            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-            <polyline points="16 17 21 12 16 7"/>
-            <line x1="21" y1="12" x2="9" y2="12"/>
-          </svg>
-          <p className="font-['Inter:Medium',sans-serif] font-medium text-[13px] text-[rgba(255,255,255,0.7)]">
-            Sign Out
-          </p>
-        </button>
+        />
       </div>
 
       {/* Main Content */}
@@ -532,7 +606,8 @@ export default function TaskDetailPage() {
                 }}
               />
               <style>{`
-                input[type="date"]::-webkit-calendar-picker-indicator {
+                input[type="date"]::-webkit-calendar-picker-indicator,
+                input[type="datetime-local"]::-webkit-calendar-picker-indicator {
                   filter: invert(25%) sepia(58%) saturate(1844%) hue-rotate(142deg) brightness(93%) contrast(101%);
                   cursor: pointer;
                 }
@@ -590,15 +665,19 @@ export default function TaskDetailPage() {
                 placeholder="Add new item..."
                 className="flex-1 bg-white/70 border border-[rgba(0,96,85,0.2)] rounded-[10px] px-3 py-2 font-['Inter:Regular',sans-serif] text-[13px] text-[#006055] focus:outline-none focus:ring-2 focus:ring-[#006055]/30"
               />
-              <button
+              <Button
+                variant="success"
+                size="small"
                 onClick={handleAddChecklistItem}
-                className="bg-[#006055] text-white px-4 py-2 rounded-[10px] font-['Inter:Semi_Bold',sans-serif] font-semibold text-[13px] hover:bg-[#005047] transition-colors flex items-center gap-1"
+                icon={
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+                  </svg>
+                }
+                className="rounded-[10px]"
               >
-                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
-                </svg>
                 Add
-              </button>
+              </Button>
             </div>
 
             {/* Checklist Items */}
@@ -642,6 +721,102 @@ export default function TaskDetailPage() {
                       </span>
                       <button
                         onClick={() => handleDeleteChecklistItem(item.id)}
+                        className="text-[#ef4444] hover:text-[#dc2626] transition-colors p-1"
+                      >
+                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+                        </svg>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Work Time Tracking Section */}
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-3">
+              <label className="block font-['Inter:Semi_Bold',sans-serif] font-semibold text-[13px] text-[#006055]">
+                Work Time Tracking
+              </label>
+              <p className="font-['Inter:Bold',sans-serif] font-bold text-[14px] text-[#006055]">
+                Total: {formatDuration(getTotalWorkTime())}
+              </p>
+            </div>
+
+            {/* Add New Work Session */}
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              <div>
+                <label className="block font-['Inter:Medium',sans-serif] text-[11px] text-[#64748b] mb-1">
+                  Start Time
+                </label>
+                <input
+                  type="datetime-local"
+                  value={newSessionStart}
+                  onChange={(e) => setNewSessionStart(e.target.value)}
+                  className="w-full bg-white/70 border border-[rgba(0,96,85,0.2)] rounded-[10px] px-3 py-2 font-['Inter:Regular',sans-serif] text-[13px] text-[#006055] focus:outline-none focus:ring-2 focus:ring-[#006055]/30"
+                  style={{ colorScheme: 'light' }}
+                />
+              </div>
+              <div>
+                <label className="block font-['Inter:Medium',sans-serif] text-[11px] text-[#64748b] mb-1">
+                  End Time
+                </label>
+                <input
+                  type="datetime-local"
+                  value={newSessionEnd}
+                  onChange={(e) => setNewSessionEnd(e.target.value)}
+                  className="w-full bg-white/70 border border-[rgba(0,96,85,0.2)] rounded-[10px] px-3 py-2 font-['Inter:Regular',sans-serif] text-[13px] text-[#006055] focus:outline-none focus:ring-2 focus:ring-[#006055]/30"
+                  style={{ colorScheme: 'light' }}
+                />
+              </div>
+            </div>
+            <Button
+              variant="success"
+              size="small"
+              onClick={handleAddWorkSession}
+              icon={
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+                </svg>
+              }
+              className="rounded-[10px] mb-3"
+            >
+              Add Work Session
+            </Button>
+
+            {/* Work Sessions List */}
+            <div
+              className="bg-white/90 rounded-[12px] border border-[rgba(0,96,85,0.2)] max-h-[200px] overflow-y-auto"
+              style={{
+                scrollbarWidth: 'thin',
+                scrollbarColor: '#006055 #f1f5f9'
+              }}
+            >
+              {workSessions.length === 0 ? (
+                <div className="p-6 text-center">
+                  <p className="font-['Inter:Regular',sans-serif] text-[13px] text-[#64748b]">
+                    No work sessions recorded yet
+                  </p>
+                </div>
+              ) : (
+                <div className="divide-y divide-[rgba(0,96,85,0.1)]">
+                  {workSessions.map((session) => (
+                    <div
+                      key={session.id}
+                      className="flex items-center justify-between p-3 hover:bg-[rgba(0,96,85,0.05)] transition-colors"
+                    >
+                      <div className="flex-1">
+                        <p className="font-['Inter:Semi_Bold',sans-serif] font-semibold text-[12px] text-[#006055]">
+                          {format(new Date(session.startTime), 'MMM d, yyyy h:mm a')} - {format(new Date(session.endTime), 'h:mm a')}
+                        </p>
+                        <p className="font-['Inter:Medium',sans-serif] text-[11px] text-[#64748b]">
+                          Duration: {formatDuration(session.duration)}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => handleDeleteWorkSession(session.id)}
                         className="text-[#ef4444] hover:text-[#dc2626] transition-colors p-1"
                       >
                         <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
@@ -737,30 +912,36 @@ export default function TaskDetailPage() {
 
           {/* Action Buttons */}
           <div className="flex gap-4 mt-8">
-            <button
+            <Button
+              variant="danger"
+              size="large"
+              fullWidth
               onClick={async () => {
                 await handleDeleteTask();
               }}
-              className="flex-1 bg-[#ef4444] text-white px-4 py-3.5 rounded-lg font-['Inter:Semi_Bold',sans-serif] font-semibold text-[15px] hover:bg-[#dc2626] transition-colors"
             >
               Delete
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="primary"
+              size="large"
+              fullWidth
+              disabled={updating}
               onClick={async () => {
                 await handleUpdateTask();
                 navigate('/home');
               }}
-              disabled={updating}
-              className="flex-1 bg-[#b0e04f] text-black px-4 py-3.5 rounded-lg font-['Inter:Semi_Bold',sans-serif] font-semibold text-[15px] hover:bg-[#9dca3f] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {updating ? 'Updating...' : 'Update'}
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="success"
+              size="large"
+              fullWidth
               onClick={handleMarkAsDone}
-              className="flex-1 bg-[#006055] text-white px-4 py-3.5 rounded-lg font-['Inter:Semi_Bold',sans-serif] font-semibold text-[15px] hover:bg-[#005047] transition-colors"
             >
               Mark as Done
-            </button>
+            </Button>
           </div>
         </div>
         </div>

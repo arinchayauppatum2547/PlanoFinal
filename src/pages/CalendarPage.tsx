@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { getTasks, Task } from '../services/taskService';
+import { getUserTasks } from '../utils/userStorage';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, getDay } from 'date-fns';
 import { getCategoryColor } from '../utils/taskColors';
 import imgCalendar from '../imports/Calendar/1e9b89899dee90e5a681bd87e2642344fbd3ee93.png';
@@ -11,11 +12,11 @@ export default function CalendarPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [loading, setLoading] = useState(true);
-  const { accessToken, signOut } = useAuth();
+  const { accessToken, user, signOut } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (accessToken) {
+    if (accessToken && user) {
       loadTasks();
     }
 
@@ -29,16 +30,16 @@ export default function CalendarPage() {
     return () => {
       window.removeEventListener('tasks-updated', handleTasksUpdated);
     };
-  }, [accessToken]);
+  }, [accessToken, user]);
 
   const loadTasks = async () => {
-    if (!accessToken) return;
+    if (!accessToken || !user) return;
 
     setLoading(true);
     try {
       if (accessToken === 'mock-token') {
-        const mockTasks = JSON.parse(localStorage.getItem('mock_tasks') || '[]');
-        setTasks(mockTasks);
+        const userTasks = getUserTasks(user.id);
+        setTasks(userTasks);
       } else {
         const fetchedTasks = await getTasks(accessToken);
         setTasks(fetchedTasks);

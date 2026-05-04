@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { createTask } from '../services/taskService';
+import { getUserTasks, setUserTasks } from '../utils/userStorage';
 import imgImage4 from '../imports/TaskPage-1/1e9b89899dee90e5a681bd87e2642344fbd3ee93.png';
 import logoPlano from '../imports/plano_dark.png';
 
@@ -14,22 +15,22 @@ export default function NewTaskPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const { accessToken, signOut } = useAuth();
+  const { accessToken, user, signOut } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!accessToken) return;
+    if (!accessToken || !user) return;
 
     setError('');
     setLoading(true);
 
     try {
       if (accessToken === 'mock-token') {
-        const tasks = JSON.parse(localStorage.getItem('mock_tasks') || '[]');
+        const tasks = getUserTasks(user.id);
         const newTask = {
           id: 'task-' + Date.now(),
-          userId: 'mock-user',
+          userId: user.id,
           title,
           description,
           dueDate,
@@ -37,11 +38,14 @@ export default function NewTaskPage() {
           priority,
           progress: 0,
           completed: false,
+          checklist: [],
+          portfolioFiles: [],
+          workSessions: [],
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         };
         tasks.push(newTask);
-        localStorage.setItem('mock_tasks', JSON.stringify(tasks));
+        setUserTasks(user.id, tasks);
 
         // Notify other pages to refresh
         window.dispatchEvent(new Event('tasks-updated'));

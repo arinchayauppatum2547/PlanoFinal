@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from '../contexts/AuthContext';
 import LoginPage from '../pages/LoginPage';
+import SignUpPage from '../pages/SignUpPage';
 import HomePage from '../pages/HomePage';
 import TaskDetailPage from '../pages/TaskDetailPage';
 import NewTaskPage from '../pages/NewTaskPage';
@@ -51,6 +52,14 @@ function AppRoutes() {
         element={
           <PublicRoute>
             <LoginPage />
+          </PublicRoute>
+        }
+      />
+      <Route
+        path="/signup"
+        element={
+          <PublicRoute>
+            <SignUpPage />
           </PublicRoute>
         }
       />

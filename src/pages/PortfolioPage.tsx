@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { getUserTasks, getUserPortfolioAbout, setUserPortfolioAbout, getUserPortfolioSkills, setUserPortfolioSkills } from '../utils/userStorage';
 import imgImage4 from '../imports/TaskPage-1/1e9b89899dee90e5a681bd87e2642344fbd3ee93.png';
 import logoPlano from '../imports/plano_dark.png';
 
@@ -25,19 +26,21 @@ export default function PortfolioPage() {
 
   useEffect(() => {
     loadPortfolioData();
-  }, [accessToken]);
+  }, [user]);
 
   const loadPortfolioData = () => {
+    if (!user) return;
+
     // Load About Me
-    const savedAbout = localStorage.getItem('portfolio_about_me') || '';
+    const savedAbout = getUserPortfolioAbout(user.id);
     setAboutMe(savedAbout);
 
     // Load Skills
-    const savedSkills = JSON.parse(localStorage.getItem('portfolio_skills') || '[]');
+    const savedSkills = getUserPortfolioSkills(user.id);
     setSkills(savedSkills);
 
     // Load Portfolio Items from all tasks
-    const tasks = JSON.parse(localStorage.getItem('mock_tasks') || '[]');
+    const tasks = getUserTasks(user.id);
     const allPortfolioFiles: PortfolioFile[] = [];
 
     tasks.forEach((task: any) => {
@@ -56,22 +59,24 @@ export default function PortfolioPage() {
   };
 
   const handleSaveAboutMe = () => {
-    localStorage.setItem('portfolio_about_me', aboutMe);
+    if (!user) return;
+    setUserPortfolioAbout(user.id, aboutMe);
     setIsEditingAbout(false);
   };
 
   const handleAddSkill = () => {
-    if (newSkill.trim() === '') return;
+    if (!user || newSkill.trim() === '') return;
     const updatedSkills = [...skills, newSkill.trim()];
     setSkills(updatedSkills);
-    localStorage.setItem('portfolio_skills', JSON.stringify(updatedSkills));
+    setUserPortfolioSkills(user.id, updatedSkills);
     setNewSkill('');
   };
 
   const handleRemoveSkill = (index: number) => {
+    if (!user) return;
     const updatedSkills = skills.filter((_, i) => i !== index);
     setSkills(updatedSkills);
-    localStorage.setItem('portfolio_skills', JSON.stringify(updatedSkills));
+    setUserPortfolioSkills(user.id, updatedSkills);
   };
 
   return (

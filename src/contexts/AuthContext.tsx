@@ -53,12 +53,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const checkUser = async () => {
     try {
-      const localUser = localStorage.getItem('mock_user');
-      if (localUser) {
-        setUser(JSON.parse(localUser));
-        setAccessToken('mock-token');
-        setLoading(false);
-        return;
+      const currentUserId = localStorage.getItem('current_user_id');
+      if (currentUserId) {
+        const users = JSON.parse(localStorage.getItem('app_users') || '[]');
+        const user = users.find((u: any) => u.id === currentUserId);
+        if (user) {
+          setUser({
+            id: user.id,
+            email: user.email,
+            user_metadata: { name: user.name }
+          });
+          setAccessToken('mock-token');
+          setLoading(false);
+          return;
+        }
       }
 
       const { data: { session } } = await supabase.auth.getSession();
@@ -73,98 +81,96 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const createSampleTasks = () => {
-    const today = new Date();
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const nextWeek = new Date(today);
-    nextWeek.setDate(nextWeek.getDate() + 7);
+  const initializeUserData = (userId: string) => {
+    // Initialize empty data for new user
+    const userTasksKey = `user_${userId}_tasks`;
+    const userCompletedKey = `user_${userId}_completed_tasks_count`;
+    const userPortfolioAboutKey = `user_${userId}_portfolio_about_me`;
+    const userPortfolioSkillsKey = `user_${userId}_portfolio_skills`;
 
-    const sampleTasks = [
-      {
-        id: 'sample-1',
-        userId: 'mock-user',
-        title: 'Finalize Compiler Design Lab',
-        description: 'Complete the syntax analyzer module and write test cases for nested loops.',
-        dueDate: today.toISOString().split('T')[0],
-        category: 'CS-402',
-        priority: 'high',
-        progress: 45,
-        completed: false,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-      {
-        id: 'sample-2',
-        userId: 'mock-user',
-        title: 'Linear Algebra Quiz',
-        description: 'Review Eigenvalues and Eigenvectors',
-        dueDate: today.toISOString().split('T')[0],
-        category: 'MATH-201',
-        priority: 'medium',
-        progress: 70,
-        completed: false,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-      {
-        id: 'sample-3',
-        userId: 'mock-user',
-        title: 'Market Analysis Report',
-        description: 'Submit the 2-page report on current inflation trends.',
-        dueDate: tomorrow.toISOString().split('T')[0],
-        category: 'ECON-101',
-        priority: 'medium',
-        progress: 30,
-        completed: false,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-      {
-        id: 'sample-4',
-        userId: 'mock-user',
-        title: 'History Essay Draft',
-        description: 'Write draft for history assignment',
-        dueDate: nextWeek.toISOString().split('T')[0],
-        category: 'Study',
-        priority: 'low',
-        progress: 0,
-        completed: false,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-    ];
-
-    if (!localStorage.getItem('mock_tasks')) {
-      localStorage.setItem('mock_tasks', JSON.stringify(sampleTasks));
+    // Only initialize if doesn't exist
+    if (!localStorage.getItem(userTasksKey)) {
+      localStorage.setItem(userTasksKey, JSON.stringify([]));
+    }
+    if (!localStorage.getItem(userCompletedKey)) {
+      localStorage.setItem(userCompletedKey, '0');
+    }
+    if (!localStorage.getItem(userPortfolioAboutKey)) {
+      localStorage.setItem(userPortfolioAboutKey, '');
+    }
+    if (!localStorage.getItem(userPortfolioSkillsKey)) {
+      localStorage.setItem(userPortfolioSkillsKey, JSON.stringify([]));
     }
   };
 
   const signUp = async (email: string, password: string, name: string) => {
-    const username = email || 'user007';
-    const mockUser: User = {
-      id: 'mock-' + Date.now(),
-      email: email || 'user007@example.com',
-      user_metadata: { name: name || username }
+    if (!email || !password) {
+      throw new Error('Email and password are required');
+    }
+
+    // Get existing users
+    const users = JSON.parse(localStorage.getItem('app_users') || '[]');
+
+    // Check if user already exists
+    const existingUser = users.find((u: any) => u.email === email);
+    if (existingUser) {
+      throw new Error('User already exists');
+    }
+
+    // Create new user
+    const userId = 'user-' + Date.now();
+    const newUser = {
+      id: userId,
+      email: email,
+      password: password, // In real app, this should be hashed
+      name: name || email.split('@')[0],
+      createdAt: new Date().toISOString()
     };
 
-    createSampleTasks();
-    localStorage.setItem('mock_user', JSON.stringify(mockUser));
-    setUser(mockUser);
+    users.push(newUser);
+    localStorage.setItem('app_users', JSON.stringify(users));
+
+    // Set current user
+    localStorage.setItem('current_user_id', userId);
+
+    // Initialize empty user data
+    initializeUserData(userId);
+
+    setUser({
+      id: userId,
+      email: email,
+      user_metadata: { name: newUser.name }
+    });
     setAccessToken('mock-token');
   };
 
   const signIn = async (email: string, password: string) => {
-    const username = email || 'user007';
-    const mockUser: User = {
-      id: 'mock-' + Date.now(),
-      email: email || 'user007@example.com',
-      user_metadata: { name: username }
-    };
+    if (!email || !password) {
+      throw new Error('Email and password are required');
+    }
 
-    createSampleTasks();
-    localStorage.setItem('mock_user', JSON.stringify(mockUser));
-    setUser(mockUser);
+    // Get existing users
+    const users = JSON.parse(localStorage.getItem('app_users') || '[]');
+
+    // Find user
+    const user = users.find((u: any) => u.email === email);
+    if (!user) {
+      throw new Error('Invalid email or password');
+    }
+
+    // Check password
+    if (user.password !== password) {
+      throw new Error('Invalid email or password');
+    }
+
+    // Set current user
+    localStorage.setItem('current_user_id', user.id);
+
+    setUser({
+      id: user.id,
+      email: user.email,
+      user_metadata: { name: user.name }
+    });
     setAccessToken('mock-token');
   };
 
@@ -182,7 +188,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signOut = async () => {
-    localStorage.removeItem('mock_user');
+    localStorage.removeItem('current_user_id');
     setUser(null);
     setAccessToken(null);
   };
