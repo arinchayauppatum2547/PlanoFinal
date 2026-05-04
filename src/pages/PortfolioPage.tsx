@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { getUserTasks, getUserPortfolioAbout, setUserPortfolioAbout, getUserPortfolioSkills, setUserPortfolioSkills } from '../utils/userStorage';
+import { getUserTasks, getUserPortfolioAbout, setUserPortfolioAbout, getUserPortfolioSkills, setUserPortfolioSkills, getUserCompletedTasks } from '../utils/userStorage';
 import imgImage4 from '../imports/TaskPage-1/1e9b89899dee90e5a681bd87e2642344fbd3ee93.png';
 import logoPlano from '../imports/plano_dark.png';
 
@@ -25,7 +25,20 @@ export default function PortfolioPage() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    loadPortfolioData();
+    if (user) {
+      loadPortfolioData();
+    }
+
+    // Listen for task updates from other pages
+    const handleTasksUpdated = () => {
+      loadPortfolioData();
+    };
+
+    window.addEventListener('tasks-updated', handleTasksUpdated);
+
+    return () => {
+      window.removeEventListener('tasks-updated', handleTasksUpdated);
+    };
   }, [user]);
 
   const loadPortfolioData = () => {
@@ -39,11 +52,13 @@ export default function PortfolioPage() {
     const savedSkills = getUserPortfolioSkills(user.id);
     setSkills(savedSkills);
 
-    // Load Portfolio Items from all tasks
-    const tasks = getUserTasks(user.id);
+    // Load Portfolio Items from all tasks (both active and completed)
+    const activeTasks = getUserTasks(user.id);
+    const completedTasks = getUserCompletedTasks(user.id);
+    const allTasks = [...activeTasks, ...completedTasks];
     const allPortfolioFiles: PortfolioFile[] = [];
 
-    tasks.forEach((task: any) => {
+    allTasks.forEach((task: any) => {
       if (task.portfolioFiles && task.portfolioFiles.length > 0) {
         task.portfolioFiles.forEach((file: PortfolioFile) => {
           allPortfolioFiles.push({
